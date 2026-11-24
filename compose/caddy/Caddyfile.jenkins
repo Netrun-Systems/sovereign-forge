@@ -1,0 +1,27 @@
+{
+	email {$ADMIN_EMAIL}
+}
+
+{$FORGE_HOST} {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+	request_body {
+		max_size 512MB
+	}
+	reverse_proxy forgejo:3000
+}
+
+{$JENKINS_HOST} {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		-Server
+	}
+	reverse_proxy jenkins:8080
+}

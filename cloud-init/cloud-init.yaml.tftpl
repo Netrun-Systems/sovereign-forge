@@ -1,0 +1,25 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+packages: [ca-certificates, curl, docker.io, docker-compose-v2, ufw, fail2ban, unattended-upgrades, age, rclone, openssl]
+write_files:
+  - path: /opt/forge/kit.bundle
+    permissions: "0600"
+    encoding: gz+b64
+    content: ${bundle_b64gz}
+  - path: /usr/local/sbin/forge-unpack
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      set -eu
+      o=
+      while IFS= read -r l; do
+        case $l in
+          '#@@FILE '*) set -- $l; [ -z "$o" ] || exec 3>&-; o=$2; mkdir -p "$${o%/*}"; : >"$o"; chmod $3 "$o"; exec 3>>"$o" ;;
+          *) [ -z "$o" ] || printf '%s\n' "$l" >&3 ;;
+        esac
+      done </opt/forge/kit.bundle
+      rm -f /opt/forge/kit.bundle
+runcmd:
+  - [ /usr/local/sbin/forge-unpack ]
+  - [ bash, /opt/forge/cloud-init/bootstrap.sh ]

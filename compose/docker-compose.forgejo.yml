@@ -1,0 +1,102 @@
+# Forgejo + PostgreSQL, plus the Forgejo Actions runner (profile "actions").
+# Used on its own for the local topology; layered with docker-compose.caddy.yml
+# (TLS) and, optionally, docker-compose.jenkins.yml by scripts/forge-compose.sh.
+#
+# Every image is pinned to an exact tag. Bump them deliberately (RUNBOOK.md,
+# "Upgrade"), never by floating a tag.
+name: forge
+
+services:
+  postgres:
+    image: postgres:16.16-alpine@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d
+    container_name: forge-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  forgejo:
+    image: codeberg.org/forgejo/forgejo:15.0.12@sha256:9a95f97ccfdf374472c96d958f6e3788d54076e0349fdce7af56ba8541d066b2
+    container_name: forgejo
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      USER_UID: "1000"
+      USER_GID: "1000"
+      FORGEJO__database__DB_TYPE: postgres
+      FORGEJO__database__HOST: postgres:5432
+      FORGEJO__database__NAME: ${POSTGRES_DB}
+      FORGEJO__database__USER: ${POSTGRES_USER}
+      FORGEJO__database__PASSWD: ${POSTGRES_PASSWORD}
+      FORGEJO__server__DOMAIN: ${FORGE_HOST:?set FORGE_HOST}
+      FORGEJO__server__ROOT_URL: ${FORGE_ROOT_URL:?set FORGE_ROOT_URL}
+      FORGEJO__server__SSH_DOMAIN: ${FORGE_HOST}
+      FORGEJO__server__SSH_PORT: ${SSH_PUBLIC_PORT:-2222}
+      FORGEJO__server__SSH_LISTEN_PORT: "22"
+      FORGEJO__security__INSTALL_LOCK: "true"
+      FORGEJO__security__SECRET_KEY: ${FORGEJO_SECRET_KEY:?set FORGEJO_SECRET_KEY}
+      FORGEJO__service__DISABLE_REGISTRATION: "true"
+      FORGEJO__service__REQUIRE_SIGNIN_VIEW: "true"
+      FORGEJO__actions__ENABLED: "true"
+      FORGEJO__log__LEVEL: info
+    volumes:
+      - forgejo-data:/data
+    ports:
+      # HTTP stays on loopback when Caddy fronts it. Override HTTP_BIND to expose.
+      - "${HTTP_BIND:-127.0.0.1:3000}:3000"
+      # Git over SSH. The host sshd keeps port 22.
+      - "${SSH_PUBLIC_PORT:-2222}:22"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  # Docker-in-Docker: job containers run inside this daemon, not the host daemon.
+  # It needs privileged mode; that is the price of not mounting the host socket.
+  dind:
+    profiles: ["actions"]
+    image: docker:27.5.1-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+    container_name: forge-dind
+    restart: unless-stopped
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    command: ["dockerd", "-H", "tcp://0.0.0.0:2375", "--tls=false"]
+
+  runner:
+    profiles: ["actions"]
+    image: code.forgejo.org/forgejo/runner:13.2.2@sha256:a8543a45fe62bebef0534d5c223cf485d3294e6dd2e42a82dbcbfd40c54a6a22
+    container_name: forge-runner
+    restart: unless-stopped
+    user: "1001:1001"
+    depends_on:
+      - dind
+      - forgejo
+    environment:
+      DOCKER_HOST: tcp://dind:2375
+    working_dir: /data
+    volumes:
+      - ${DATA_DIR:-./data}/runner:/data
+    # Idle until scripts/register-runner.sh has written /data/.runner.
+    command:
+      - /bin/sh
+      - -c
+      - |
+        while [ ! -s /data/.runner ]; do echo "waiting for registration (scripts/register-runner.sh)"; sleep 5; done
+        exec forgejo-runner daemon --config /data/config.yml
+
+volumes:
+  pgdata:
+  forgejo-data:

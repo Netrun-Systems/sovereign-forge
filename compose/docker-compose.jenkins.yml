@@ -1,0 +1,33 @@
+# The Jenkins alternative. Layered on top of docker-compose.forgejo.yml. The
+# runner and dind services are in profile "actions" and stay off when
+# CI_ENGINE=jenkins (gen-env.sh then sets COMPOSE_PROFILES=jenkins).
+#
+# This is a controller only. Builds on the built-in node run inside the
+# controller JVM: acceptable for trusted private repositories, wrong for
+# untrusted pull requests. Add agents before opening it to outside contributors.
+services:
+  jenkins:
+    profiles: ["jenkins"]
+    image: jenkins/jenkins:2.580.2-lts-jdk21@sha256:74401de6a6f92e1afe1b02d1c8e3d0c33f263bfb5275dd8813f9150355f2367b
+    container_name: forge-jenkins
+    restart: unless-stopped
+    environment:
+      JAVA_OPTS: "-Xms256m -Xmx${JENKINS_HEAP:-1g} -Djava.awt.headless=true"
+    mem_limit: 2g
+    volumes:
+      - jenkins-home:/var/jenkins_home
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null http://localhost:8080/login || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+
+  # Merged into the forgejo service from docker-compose.forgejo.yml: allow
+  # webhook delivery to the Jenkins controller on the private compose network.
+  forgejo:
+    environment:
+      FORGEJO__webhook__ALLOWED_HOST_LIST: "external,jenkins"
+
+volumes:
+  jenkins-home:

@@ -1,0 +1,18 @@
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+# Runtime secrets and data: never commit
+.env
+!.env.example
+backup.env
+*.key
+*.pem
+identity.txt
+age-identity*
+compose/data/
+data/
+.work/

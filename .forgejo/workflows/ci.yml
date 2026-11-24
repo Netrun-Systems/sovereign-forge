@@ -1,0 +1,75 @@
+# The kit's own CI. It runs on the Forgejo Actions runner this kit deploys, so a
+# green run here is evidence that the runner, the job containers and the network
+# path all work. The syntax is GitHub Actions syntax on purpose: see CHOOSING.md.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  hygiene:
+    runs-on: docker
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: No secrets, keys or private addresses in the tree
+        run: bash scripts/check-no-secrets.sh
+
+      - name: Shell syntax
+        run: |
+          for f in scripts/*.sh cloud-init/bootstrap.sh; do bash -n "$f" && echo "ok  $f"; done
+
+      - name: shellcheck
+        run: |
+          apt-get update -qq && apt-get install -y -qq shellcheck >/dev/null
+          shellcheck -x scripts/*.sh cloud-init/bootstrap.sh
+
+      - name: YAML parses
+        run: |
+          apt-get install -y -qq python3-yaml >/dev/null
+          python3 - <<'PY'
+          import glob, sys, yaml
+          bad = 0
+          for f in glob.glob("compose/*.yml") + glob.glob(".forgejo/workflows/*.yml"):
+              try:
+                  yaml.safe_load(open(f))
+                  print("ok ", f)
+              except Exception as e:
+                  bad = 1
+                  print("BAD", f, e)
+          sys.exit(bad)
+          PY
+
+      - name: Images are pinned to a version tag AND a sha256 digest
+        run: |
+          unpinned=$(grep -hE '^[[:space:]]*image:' compose/*.yml | grep -vE ':[0-9]+(\.[0-9]+)+[^@[:space:]]*@sha256:[0-9a-f]{64}$' || true)
+          [ -z "$unpinned" ] || { echo "unpinned or floating image tag:"; echo "$unpinned"; exit 1; }
+          echo "all images carry a version tag and a sha256 digest"
+
+  terraform:
+    runs-on: docker
+    env:
+      TF_VERSION: "1.17.2"
+      # Published SHA-256 of terraform_1.17.2_linux_amd64.zip (releases.hashicorp.com).
+      TF_SHA256: "e6f16b2f0b137ee5729caa8c4e79a3bae4ee261acd198a1fcfa8584a6296605b"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned Terraform (checksum verified)
+        run: |
+          apt-get update -qq && apt-get install -y -qq unzip curl >/dev/null
+          curl -fsSL -o tf.zip "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip"
+          echo "${TF_SHA256}  tf.zip" | sha256sum -c -
+          unzip -q tf.zip -d /usr/local/bin && terraform version
+
+      - name: fmt
+        run: terraform fmt -check -recursive terraform
+
+      - name: validate (aws, azure)
+        run: |
+          for d in aws azure; do
+            terraform -chdir=terraform/$d init -backend=false -input=false >/dev/null
+            terraform -chdir=terraform/$d validate
+          done

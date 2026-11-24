@@ -1,0 +1,26 @@
+# TLS termination. Caddy obtains and renews Let's Encrypt certificates over
+# HTTP-01, so DNS for FORGE_HOST (and JENKINS_HOST) must point at this machine
+# and ports 80/443 must be reachable.
+services:
+  caddy:
+    image: caddy:2.11.9@sha256:4851e54a46b206517c574821bb5cc67f170d2156041e9fbc4c9193b45e84a75b
+    container_name: forge-caddy
+    restart: unless-stopped
+    depends_on:
+      - forgejo
+    environment:
+      FORGE_HOST: ${FORGE_HOST:?set FORGE_HOST}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?set ADMIN_EMAIL}
+      JENKINS_HOST: ${JENKINS_HOST:-jenkins.invalid}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./caddy/${CADDYFILE:-Caddyfile.forgejo}:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  caddy-data:
+  caddy-config:

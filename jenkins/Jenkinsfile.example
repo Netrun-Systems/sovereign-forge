@@ -1,0 +1,14 @@
+// Minimal declarative pipeline for the Jenkins path. Jenkins reads this from
+// the repository root on the forge. Wire it up with a Multibranch Pipeline job
+// and a Forgejo webhook pointing at https://<JENKINS_HOST>/gitea-webhook/post
+// (needs the Gitea plugin, which also works with Forgejo).
+pipeline {
+  agent any
+  options { timeout(time: 30, unit: 'MINUTES'); disableConcurrentBuilds() }
+  stages {
+    stage('Checkout') { steps { checkout scm } }
+    stage('Build')    { steps { sh 'echo replace-with-your-build' } }
+    stage('Test')     { steps { sh 'echo replace-with-your-tests' } }
+  }
+  post { always { cleanWs() } }
+}
