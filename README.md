@@ -119,28 +119,41 @@ Read this before you trust it with anything.
 - **Jenkins has no agents.** The controller runs builds on its built-in node, which is fine for trusted private repositories and wrong for anything else.
 - **Containers are not auto-updated.** Image tags and digests are pinned on purpose. The operating system patches itself; Forgejo, Postgres, Caddy and the runner are upgraded by you ([RUNBOOK.md](RUNBOOK.md#upgrade)).
 - **Windows and macOS runners, container registry hosting, package registries, and Pages** are outside the scope of the default setup.
-- **`make local` has no TLS**, and jobs that check out code from inside the runner need `FORGE_HOST` to be an address the job containers can reach, not `localhost`.
+- **`make local` has no TLS.** It listens on plain HTTP at `http://localhost:3000`, bound to loopback.
 
 ## Verification status
 
-What was checked when this was written, and what was not. Update this section when you test it on a real account.
+What was checked, and what was not. Update this section when you test it somewhere new.
+
+Environment of the 2026-11-24 run: Windows 11, WSL2 Ubuntu 26.04 (bash 5.3.9, GNU Make 4.4.1, Docker Engine 29.1.3 and Compose 2.40.3 from WSL's own engine, run as root), rclone 1.76.0, age 1.2.1. Images as pinned in `compose/`: Forgejo 15.0.12, PostgreSQL 16.16, runner 13.2.2, Docker-in-Docker 27.5.1.
 
 | Checked | How |
 |---|---|
-| `terraform fmt` and `terraform validate` clean for `aws/` and `azure/` | Terraform 1.17.2, providers aws 5.100.0, azurerm 4.81.0, random 3.9.1 |
+| `terraform fmt` and `terraform validate` clean for `aws/` and `azure/` | Terraform 1.17.2, providers aws 5.100.0, azurerm 4.81.0, random 3.9.1. Also run as the `terraform` job of the kit's own CI, on the runner this kit deploys: passed |
 | Compose files parse and merge correctly for the local, cloud and Jenkins layouts, with the right profiles active | `docker compose config` (no containers started) |
 | Rendered cloud-init: size under Lightsail's 16 KB limit, bundle unpacks byte-for-byte | Rendered with Terraform, decoded and diffed |
-| `backup.sh` and `restore.sh`: encryption, upload, read-back, pruning, tamper detection, wrong-key failure | Run end to end against a local rclone remote with `docker` stubbed |
-| Secret tripwire catches keys, private addresses and valued env files | `scripts/check-no-secrets.sh`, positive and negative |
+| `make local` from an empty machine: Forgejo, PostgreSQL, Docker-in-Docker and the runner all up and healthy | `make local` exit 0 in about 70 s with a cold image cache, no Caddy |
+| First administrator, API token, push and clone over HTTP and over SSH (port 2222) | The command `make local` prints, then `git push` / `git clone` against `localhost:3000` and `localhost:2222` |
+| Forgejo Actions: a workflow runs on the runner, including `actions/checkout` | Two workflows pushed to a test repository, both succeeded. The kit's own `.forgejo/workflows/ci.yml` also passes both jobs (hygiene, with shellcheck 0.9.0 from Debian, and terraform) |
+| `backup.sh` against real containers | Both artifacts built and encrypted, uploaded, read back and size/md5 verified, daily and weekly copies, to an rclone `local` remote |
+| `restore.sh` drill, daily and weekly tiers, `--extract-to`, and failure with the wrong key | Run against that backup |
+| Full restore per [RUNBOOK.md](RUNBOOK.md#full-restore) onto a fresh stack with newly generated secrets | Repository, branches, tag, issue and API token survived, `git fsck` clean, push works after `regenerate hooks`, runner re-registered per step 7 |
+| `make destroy CLOUD=local PURGE=1`, then `make local` again | Containers, volumes and the runner registration are gone and the next `make local` registers a new runner |
+| `mirror-from-github.sh`: dry run, mirror, re-run, archived repositories skipped, pull-request refs preserved | Against a stubbed GitHub API and local file origins, into the real local Forgejo. Not against github.com |
+| `shellcheck` on `scripts/` and `cloud-init/bootstrap.sh` | Clean with shellcheck 0.11.0 (container) and 0.9.0 (the version the CI job installs from Debian bookworm) |
+| Secret tripwire catches keys, private addresses and valued env files, and no longer prints the secret it found | `scripts/check-no-secrets.sh`, positive and negative |
 
 | **Not** checked | |
 |---|---|
 | Any `terraform apply`, any real AWS or Azure resource | Nothing here has been deployed from this repository |
-| A real Forgejo, PostgreSQL, Caddy, runner or Jenkins container | No container was started |
-| `bootstrap.sh` on a real Ubuntu 24.04 host, Let's Encrypt issuance, the runner registration flow | Needs a live host |
-| The S3 and Azure Blob code paths of `backup.sh` | Exercised only through rclone's local backend; the "remote reports no checksum" branch was exercised with `VERIFY_FULL=1` |
-| `mirror-from-github.sh`, `verify.sh`, `forgectl.sh`, `register-runner.sh`, and the Makefile | Syntax-checked only (`make` was not installed where this was written) |
-| `shellcheck` | Not installed where this was written; CI runs it |
+| Caddy and TLS (`WITH_CADDY=true`), Let's Encrypt issuance | `make local` runs without Caddy |
+| `bootstrap.sh` on a real Ubuntu 24.04 host, the cloud-init first boot, the backup systemd timer | Needs a live host |
+| Jenkins (`CI_ENGINE=jenkins`) | No Jenkins container was started |
+| `verify.sh` (both halves), `forgectl.sh deploy` and `destroy` for aws and azure | Needs a live cloud host |
+| The S3 and Azure Blob code paths of `backup.sh` | Exercised only through rclone's local backend; the "remote reports no checksum" branch was exercised with `VERIFY_FULL=1` in an earlier run with `docker` stubbed |
+| `mirror-from-github.sh` against github.com, with `--lfs`, and with an organisation of more than one page of repositories | Needs a GitHub token |
+| Docker Desktop's engine, macOS, and running as a non-root user in the `docker` group | The run above used WSL's engine as root, so the `chown` fallback in `register-runner.sh` was not taken |
+| Upgrades between pinned image versions, restores of a database larger than a few MB, and anything under load | Not attempted. The instance sizes above are still reasoned, not measured |
 
 ## License
 

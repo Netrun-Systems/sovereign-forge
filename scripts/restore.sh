@@ -33,14 +33,14 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$ENV_FILE" ] && load_env "$ENV_FILE"
-[ -n "$IDENTITY" ] && [ -r "$IDENTITY" ] || die "--identity FILE is required and must be readable"
+if [ -z "$IDENTITY" ] || [ ! -r "$IDENTITY" ]; then die "--identity FILE is required and must be readable"; fi
 [ -n "${BACKUP_REMOTE:-}" ] || die "BACKUP_REMOTE is unset (use --env-file)"
 case $TIER in daily|weekly) ;; *) die "--tier must be daily or weekly" ;; esac
 export RCLONE_LOG_LEVEL=${RCLONE_LOG_LEVEL:-ERROR}
 need age rclone tar sha256sum gunzip grep
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/forge-restore.XXXXXX")
-cleanup() { [ "$KEEP" = 1 ] && log INFO "kept $WORK" || rm -rf "$WORK"; }
+cleanup() { if [ "$KEEP" = 1 ]; then log INFO "kept $WORK"; else rm -rf "$WORK"; fi; }
 trap cleanup EXIT
 
 if [ "$WANT" = latest ]; then

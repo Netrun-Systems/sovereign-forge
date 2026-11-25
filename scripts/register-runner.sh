@@ -45,6 +45,12 @@ token=$(docker exec -u git forgejo forgejo actions generate-runner-token | tr -d
 [ -n "$token" ] || die "empty registration token"
 
 "$FC" run -T --rm --no-deps runner forgejo-runner generate-config > "$RUNNER_DIR/config.yml"
+# Job containers run inside the dind daemon, on a network of its own, so they cannot
+# resolve the compose service name "forgejo" that jobs are told to clone from
+# (actions/checkout fails with "Could not resolve host: forgejo"). "host" puts them in
+# dind's network namespace, which sits on the compose network and does resolve it.
+sed -i -E 's/^([[:space:]]+)network: ""/\1network: "host"/' "$RUNNER_DIR/config.yml"
+grep -qE '^[[:space:]]+network: "host"' "$RUNNER_DIR/config.yml" || die "could not set container.network in $RUNNER_DIR/config.yml (runner config format changed?)"
 "$FC" run -T --rm --no-deps runner forgejo-runner register --no-interactive \
   --instance http://forgejo:3000 --token "$token" \
   --name "${RUNNER_NAME:?}" --labels "${RUNNER_LABELS:?}" >/dev/null

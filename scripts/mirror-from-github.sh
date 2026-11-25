@@ -38,7 +38,7 @@ while [ $# -gt 0 ]; do
     *) die "unknown argument: $1" ;;
   esac
 done
-[ -n "$GH_OWNER" ] && [ -n "$FORGE_URL" ] || die "--github and --forge-url are required"
+if [ -z "$GH_OWNER" ] || [ -z "$FORGE_URL" ]; then die "--github and --forge-url are required"; fi
 FORGE_OWNER=${FORGE_OWNER:-$GH_OWNER}
 case $OWNER_TYPE in org|user) ;; *) die "--owner-type must be org or user" ;; esac
 : "${GITHUB_TOKEN:?set GITHUB_TOKEN (read access to the source repositories)}"

@@ -23,7 +23,8 @@ scan() { # scan LABEL REGEX
   local label=$1 re=$2 hits
   hits=$(printf '%s\n' "${files[@]}" | grep -vxF "$self" | grep -v '\.terraform\.lock\.hcl$' \
     | xargs -r grep -InE -e "$re" 2>/dev/null || true)
-  [ -z "$hits" ] || { report "$label"; printf '%s\n' "$hits" | sed 's/^/        /' | cut -c1-160; }
+  # Print file:line only. Echoing the matching line would copy the very secret it found into the CI log.
+  [ -z "$hits" ] || { report "$label"; printf '%s\n' "$hits" | cut -d: -f1,2 | sed 's/^/        /'; }
 }
 
 scan "AWS access key id"            'AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}'

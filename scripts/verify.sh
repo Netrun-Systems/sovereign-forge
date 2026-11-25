@@ -13,6 +13,8 @@
 #   --on-box run the on-box half locally (what --ssh does on the other end)
 #   --wait   retry the whole run every 15 s for up to SECONDS before giving up
 # Exit 0 only if no check FAILED. WARN does not fail the run but is never silent.
+# `A && pass || fail` is deliberate below: pass/fail only print and count, they never fail.
+# shellcheck disable=SC2015
 set -Eeuo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]:-$0}")" 2>/dev/null || echo .)" && pwd)"
 
@@ -37,6 +39,7 @@ fail() { FAILN=$((FAILN + 1)); printf 'FAIL  %s\n' "$*"; }
 warn() { WARNN=$((WARNN + 1)); printf 'WARN  %s\n' "$*"; }
 
 tcp_open() { # tcp_open host port -> 0 if a TCP connection succeeds within 5 s
+  # shellcheck disable=SC2016  # $1 and $2 belong to the inner bash
   timeout 5 bash -c ': > /dev/tcp/$1/$2' _ "$1" "$2" 2>/dev/null
 }
 
@@ -47,6 +50,7 @@ remote_half() {
   tcp_open "$target" 80 && pass "tcp 80 open (ACME + redirect)" || fail "tcp 80 closed"
   tcp_open "$target" 443 && pass "tcp 443 open" || fail "tcp 443 closed"
   if tcp_open "$target" 2222; then
+    # shellcheck disable=SC2016  # $1 and $2 belong to the inner bash
     banner=$(timeout 5 bash -c 'exec 3<>/dev/tcp/$1/$2; head -c 4 <&3' _ "$target" 2222 2>/dev/null || true)
     [ "$banner" = "SSH-" ] && pass "tcp 2222 answers with an SSH banner (git over ssh)" || fail "tcp 2222 open but no SSH banner"
   else
@@ -77,7 +81,7 @@ remote_half() {
 }
 
 onbox_half() {
-  local env=/opt/forge/compose/.env ci c status last now age remote
+  local env=/opt/forge/compose/.env c status last now age remote
   [ -n "$CI" ] || CI=$(grep -E '^CI_ENGINE=' "$env" 2>/dev/null | cut -d= -f2 || true)
   [ -n "$CI" ] || CI=forgejo
 

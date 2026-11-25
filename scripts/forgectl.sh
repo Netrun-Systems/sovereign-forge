@@ -83,8 +83,19 @@ cmd_destroy() {
     local)
       need docker
       if [ -n "${PURGE:-}" ]; then
+        # The runner's registration lives in DATA_DIR, not in a volume, and it belongs to the
+        # database about to be deleted. Left behind, the next `make local` says "runner already
+        # registered", never starts a runner, and still reports success. The files are owned by
+        # the runner's uid, so remove them from inside its image.
+        local data_dir
+        data_dir=$(env_get "$ROOT/compose/.env" DATA_DIR)
+        if [ -d "$data_dir/runner" ]; then
+          "$HERE/forge-compose.sh" run -T --rm --no-deps --entrypoint /bin/sh runner \
+            -c 'rm -rf /data/.runner /data/config.yml /data/.cache' ||
+            log WARN "could not clear the runner registration; delete $data_dir/runner by hand"
+        fi
         "$HERE/forge-compose.sh" down --volumes
-        log INFO "containers and volumes deleted"
+        log INFO "containers, volumes and the runner registration deleted"
       else
         "$HERE/forge-compose.sh" down
         log INFO "containers removed, volumes kept (PURGE=1 deletes them)"
