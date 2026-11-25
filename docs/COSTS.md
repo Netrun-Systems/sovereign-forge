@@ -89,7 +89,7 @@ as is any self-hosted-runner platform charge — GitHub's runner pricing page do
 CX33 moves from 82 to **499 runs/mo**. Against GitHub-hosted minutes beyond the free
 allowance ($0.072/run), CX33 breaks even at 137 runs/mo and Lightsail $44 at 611.
 
-Size the runner for your build, not for your forge. A build that was OOM-killed on a 2-core
+Size the runner for your build, not for your forge. A build that was OOM-killed on a
 managed builder will not fit a 2 GB VM either; the 8 GB tiers are the honest starting point,
 which is why this kit defaults Jenkins to 4 GB and tells you to measure.
 
@@ -132,8 +132,8 @@ additional TB) could not be confirmed, so no overage figure is used anywhere abo
 
 | Rank | Architecture | Monthly cash | What it costs you instead |
 |---:|---|---:|---|
-| 1 | Vendor free tier + off-site backup | ~$0.04 | Loses private-repo branch protection. Depends on a vendor whose outages are not yours to fix. |
-| 2 | Hardware you already own + cheap object storage | ~$0.04 | Operator hours. Residential-link risk if that is your uplink. Hardware amortisation and power, both unquantified. |
+| 1 | Vendor free tier + off-site backup | ~$0.04 (~$0.02 on Glacier IR) | Loses private-repo branch protection. Depends on a vendor whose outages are not yours to fix. |
+| 2 | Hardware you already own + cheap object storage | ~$0.04 (~$0.02 on Glacier IR) | Operator hours. Residential-link risk if that is your uplink, softened by Git itself: a clone works offline and catches up when the link returns. Hardware amortisation and power, both unquantified. |
 | 3 | One small cloud VM + object storage | Hetzner CX23 $6.59 · Lightsail $12.04 · Azure B1ms ~$15.20 | Real uptime and a public IP, for real money. |
 
 Backup storage for a 5 GB dataset is noise in every option: S3 Standard $0.115/mo, S3
@@ -145,8 +145,9 @@ is $48 of storage plus $120 for one full restore = $168; B2 is $83.40 with that 
 inside the 3× allowance. If you test restores — and this kit tells you to — B2 wins above
 roughly a terabyte.
 
-**$5/mo is not a real floor on AWS.** The $5 Lightsail bundle is 0.5 GB of RAM, which will
-not run a forge. $12 is the honest number. If you are comparing a migration against "about
+**$5/mo is not a real floor on AWS.** The $5 Lightsail bundle is 0.5 GB of RAM. We have not
+tried a forge on it, but with Forgejo, a database and a runner we do not expect it to be usable. $12 is the
+number we would plan on. If you are comparing a migration against "about
 five dollars," you are comparing against a tier that cannot do the job.
 
 ## Where the vendor service is genuinely cheaper

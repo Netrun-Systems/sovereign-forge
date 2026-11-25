@@ -58,6 +58,8 @@ scripts/mirror-from-github.sh --github [ORG] --forge-url https://[FORGE_HOST] --
 
 What it does for each repository: creates the forge repository if it is missing (private if the source is private; the forge organisation is created if absent), `git clone --mirror`, then `git push --mirror`. It is safe to re-run: an existing local mirror is refreshed with `git remote update --prune`. Archived repositories are skipped unless you pass `--include-archived`. The summary line and a non-zero exit tell you if any repository failed.
 
+**Re-running it is safe only while GitHub is the sole place anyone pushes.** `git push --mirror` makes the forge match GitHub exactly, so a commit or branch that exists only on the forge is deleted on the next run; we reproduced that in testing. It also mirrors every repository in the organisation, not a chosen subset. Once people start pushing to the forge, stop re-running it.
+
 Two behaviours to know:
 
 - GitHub's `refs/pull/*` refs are deleted from the local mirror before pushing, because the forge owns that namespace itself.

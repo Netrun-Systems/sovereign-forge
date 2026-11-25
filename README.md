@@ -1,6 +1,6 @@
 # sovereign-forge
 
-A self-hosted Git forge and CI that you can stand up on a small cloud VM, or on a machine you own, with one command. It is the portable, reproducible version of a setup we run ourselves: [Forgejo](https://forgejo.org) holding private repositories, a CI runner beside it, and encrypted nightly backups that have been restored from.
+A self-hosted Git forge and CI that you can stand up on a small cloud VM, or on a machine you own, with one command. It packages [Forgejo](https://forgejo.org) for private repositories, a CI runner beside it, and encrypted nightly off-site backups with a restore drill. It grew out of our own setup, a snapshot copy of our repositories on hardware we own with encrypted nightly backups, but this repository has not yet been deployed end to end; see [Verification status](#verification-status) for exactly what has and has not been tested.
 
 ```
 make aws        # Lightsail + S3        -> https://forge.example.com
@@ -26,7 +26,7 @@ This is a kit, not a price list, so the numbers live in [docs/COSTS.md](docs/COS
 
 - One VM. On AWS Lightsail the 2 GB bundle is a flat monthly price with transfer included; the 4 GB bundle is double that. We pay $12 and $24 a month for those two bundles as of late 2026. Check current pricing before you rely on it.
 - Object storage for backups is the only managed service in the design, because it is genuinely cheaper and more durable than anything you would run yourself. Weekly copies move to a cold tier on a schedule.
-- If you already own hardware, the cheapest topology is the third one below. Our own forge runs on owned hardware for exactly that reason; this kit exists for everyone who does not have a spare machine.
+- If you already own hardware, the cheapest topology is the third one below. Our own forge runs on owned hardware; this kit exists for everyone who does not have a spare machine.
 
 ## Three topologies
 
@@ -83,7 +83,7 @@ For a local trial: `make local`, then open <http://localhost:3000>.
 
 ## CI engine: Forgejo Actions by default, Jenkins if you need it
 
-The default is **Forgejo Actions**. It reads GitHub-Actions-compatible workflow YAML, so existing `.github/workflows` files port with little or no change. That is a real migration argument. In our own organisation, more than 400 GitHub Actions runs have ended in `startup_failure` since 2026-04-25: run creation is refused upstream of the workflow file, so those workflows have never executed. Under Forgejo Actions the same YAML would get a runner and run. It is also light: the runner is a single Go binary.
+The default is **Forgejo Actions**. It reads GitHub-Actions-compatible workflow YAML, so existing `.github/workflows` files port with little or no change. That is a real migration argument. In one of our repositories, more than 400 GitHub Actions runs have ended in `startup_failure` since 2026-04-25: run creation is refused upstream of the workflow file, so no job has started there since. Under Forgejo Actions the same YAML should get a runner and run; we have not yet tested that migration. It is also light: the runner is a single Go binary.
 
 **Jenkins** is also fully wired up (`CI_ENGINE=jenkins`), and it is the right choice for teams with existing Jenkinsfiles or plugin dependencies that have no Actions equivalent. It is a JVM service with a real memory floor and a plugin-update cadence you need to own, so it needs a bigger instance: **4 GB** (Lightsail `medium_3_0`, Azure `Standard_B2s`), against **2 GB** (`small_3_0`, `Standard_B1ms`) for Forgejo Actions.
 
