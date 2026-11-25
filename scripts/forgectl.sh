@@ -53,6 +53,8 @@ cmd_local() {
   "$HERE/forge-compose.sh" pull --quiet
   "$HERE/forge-compose.sh" up -d --wait --wait-timeout 300 postgres forgejo
   local env="$ROOT/compose/.env" ci url
+  # WITH_CADDY=true selects the Caddy compose file, but nothing else would start the container.
+  [ "$(env_get "$env" WITH_CADDY)" != true ] || "$HERE/forge-compose.sh" up -d caddy
   ci=$(env_get "$env" CI_ENGINE)
   if [ "${ci:-forgejo}" = forgejo ]; then
     "$HERE/register-runner.sh"

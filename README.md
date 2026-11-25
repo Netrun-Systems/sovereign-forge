@@ -123,9 +123,13 @@ Read this before you trust it with anything.
 
 ## Verification status
 
-What was checked, and what was not. Update this section when you test it somewhere new.
+What was checked, and what was not. Update this section when you test it somewhere new. Nothing here was run on GitHub Actions; GitHub Actions does not execute for this project.
 
 Environment of the 2026-11-24 run: Windows 11, WSL2 Ubuntu 26.04 (bash 5.3.9, GNU Make 4.4.1, Docker Engine 29.1.3 and Compose 2.40.3 from WSL's own engine, run as root), rclone 1.76.0, age 1.2.1. Images as pinned in `compose/`: Forgejo 15.0.12, PostgreSQL 16.16, runner 13.2.2, Docker-in-Docker 27.5.1.
+
+Environment of the 2026-11-25 run: the same WSL2 engine for everything marked "local" below, plus Caddy 2.11.9 and Jenkins 2.580.2-lts-jdk21 (Java 21.0.13) as pinned, Terraform 1.17.2 (installed in WSL, release checksum verified) and shellcheck 0.11.0. The first-boot checks ran on a throwaway QEMU/KVM guest on Proxmox VE 9.1.1 (2 vCPU, 4 GB RAM, 25 GB disk, kernel 6.8.0-147), booted from the checksum-verified Ubuntu 24.04.5 LTS cloud image, with the kit's rendered user-data delivered through cloud-init's NoCloud datasource. The guest has been destroyed.
+
+### Checked, 2026-11-24
 
 | Checked | How |
 |---|---|
@@ -140,19 +144,50 @@ Environment of the 2026-11-24 run: Windows 11, WSL2 Ubuntu 26.04 (bash 5.3.9, GN
 | Full restore per [RUNBOOK.md](RUNBOOK.md#full-restore) onto a fresh stack with newly generated secrets | Repository, branches, tag, issue and API token survived, `git fsck` clean, push works after `regenerate hooks`, runner re-registered per step 7 |
 | `make destroy CLOUD=local PURGE=1`, then `make local` again | Containers, volumes and the runner registration are gone and the next `make local` registers a new runner |
 | `mirror-from-github.sh`: dry run, mirror, re-run, archived repositories skipped, pull-request refs preserved | Against a stubbed GitHub API and local file origins, into the real local Forgejo. Not against github.com |
-| `shellcheck` on `scripts/` and `cloud-init/bootstrap.sh` | Clean with shellcheck 0.11.0 (container) and 0.9.0 (the version the CI job installs from Debian bookworm) |
+| `shellcheck` on `scripts/` and `cloud-init/bootstrap.sh` | Clean with shellcheck 0.11.0 (container) and 0.9.0 (the version the CI job installs from Debian bookworm). Re-run clean with 0.11.0 on 2026-11-25 after the fixes below |
 | Secret tripwire catches keys, private addresses and valued env files, and no longer prints the secret it found | `scripts/check-no-secrets.sh`, positive and negative |
+
+### Checked, 2026-11-25
+
+| Checked | How |
+|---|---|
+| Jenkins (`CI_ENGINE=jenkins`): the controller starts and stays healthy inside its 1 GB heap and 2 GB container cap | `CI_ENGINE=jenkins WITH_CADDY=false make local`. The container reported healthy and the log said "Jenkins is fully up and running". The JVM ran with `-Xms256m -Xmx1g`; the container used 593 MiB idle and 854 to 884 MiB after a plugin install, a restart and a pipeline build, against the 2 GiB cap, with 0 restarts and `OOMKilled=false`. Idle plus one trivial build only, not a load test |
+| `jenkins/Jenkinsfile.example` runs to completion on the built-in node | The Pipeline suite, Git and Gitea plugins installed with `jenkins-plugin-cli`, the file pushed to the local Forgejo, a "Pipeline script from SCM" job with a credential: build result SUCCESS, with checkout, Build, Test and the post step all run. It FAILED the first time; see the bugs below. Forgejo webhooks, Multibranch jobs and external agents were not exercised. The stack was then destroyed with `PURGE=1` |
+| `bootstrap.sh` on a clean Ubuntu 24.04 host, started by cloud-init's real first-boot sequence | The module's `user_data` output rendered with Terraform (14,809 bytes) and delivered as NoCloud user-data. `cloud-init status` reported `done`, the log ended "bootstrap complete" on the first attempt, with no errors. Five containers up (Forgejo and PostgreSQL healthy, runner registered, Docker-in-Docker, Caddy). The swapfile, ufw rules, fail2ban, unattended-upgrades, the metadata-endpoint DROP rule and the sshd hardening drop-in were all in effect |
+| `/root/forge-admin-credentials.txt` and the secret files | Present as `0600 root:root`, as are `/opt/forge/compose/.env`, `/etc/forge/backup.env` and `/var/lib/forge/last-success`; `/var/backups/forge` is `0700` |
+| `forge-backup.timer` and `forge-backup.service` install, and the timer fires the service | Both installed and the timer enabled by `bootstrap.sh`. To avoid waiting for 03:30, a temporary drop-in moved the timer to about two minutes ahead (and was then removed): the service started with `TriggeredBy: forge-backup.timer`, `Result=success`, exit 0, and `last-success` was written |
+| The off-site artifact is encrypted and read back | Pointed at an rclone `local` remote on the guest, no cloud bucket. Both artifacts begin with the age header, are not readable as tar, the `.sha256` sidecars verify, and the script's own size and md5 read-back passed for all four objects. Copied off the guest, they decrypt with the private key that never touched it (the data archive lists the seeded repository, the dump contains the `repository` table) and a wrong key is refused |
+| `verify.sh`, both halves, against a real host | On-box half: 15 PASS after the backup had run. Remote half, run from the guest against its own address with `--host forge.internal --ip <addr>`: ports 80, 443 and 2222 open, 3000 and 5432 closed, TLS verified, health endpoint 200, API reachable, registration closed. It exposed two bugs in the check itself (below), and it correctly turned FAIL when registration was deliberately opened on the guest |
+| The stack comes back after a reboot | After the first reboot all five containers were up again (the data survived, the backup state was still recent) and the on-box half passed 14 of 15; the one FAIL was "sshd allows password authentication", which two further reboots, one of them sampled every 3 s from boot, never reproduced (`passwordauthentication no` each time). That single failure is unexplained. The second reboot was only probed early, while containers were still starting, so full recovery was observed once |
+| Caddy (`WITH_CADDY=true`) terminates TLS and proxies to Forgejo | With the internal name `forge.internal`, which Caddy serves from its own CA (`tls internal` is automatic for this name; the log says `"issuer":"local"`), both on the guest's bootstrap and on a cold local `WITH_CADDY=true make local`: HTTP/2 with a certificate from "Caddy Local Authority", chain verified when its root is trusted and `unable to get local issuer certificate` when it is not, port 80 answers 308 to HTTPS, HSTS and nosniff headers set and the `Server` header removed, zstd compression, the Forgejo login page reached through the proxy, port 3000 bound to loopback only, and a clone and push over HTTPS through Caddy. **Let's Encrypt issuance was not tested**: it needs a public IP and a public DNS record, and none was created |
+| `terraform init -backend=false`, `validate` and `fmt -check` for `aws/` and `azure/` | Terraform 1.17.2, lock files unchanged by `init`, all clean, and clean again after the fix below |
+| `terraform plan` for `aws/` | Read-only. Without credentials it stops at "No valid credential sources found". With a read-only session it first failed (bug below); after the fix: `Plan: 16 to add, 0 to change, 0 to destroy`, exit 0, no state file written. **No `apply` was run and nothing was created** |
+
+### Bugs found and fixed by the 2026-11-25 run
+
+| What was wrong | How it showed | Fix |
+|---|---|---|
+| `jenkins/Jenkinsfile.example` called `cleanWs()`, a Workspace Cleanup plugin step that the Pipeline suite does not provide | The build FAILED after its stages passed: `No such DSL method 'cleanWs'` | It uses core `deleteDir()`, and the header now says the file needs the Pipeline and Git plugins, because the controller image ships with none |
+| `WITH_CADDY=true make local` wrote the Caddy compose layer but never started Caddy | It printed "forge is up at https://forge.internal/" with nothing listening on 80 or 443 | `forgectl.sh local` now runs `up -d caddy` when `WITH_CADDY=true`; confirmed on a cold re-run |
+| `verify.sh` failed `/api/v1/version` on every host this kit builds | The kit sets `REQUIRE_SIGNIN_VIEW`, so the answer is `Only signed in user is allowed to call APIs.` | That answer now counts as the API responding and refusing anonymous callers |
+| `verify.sh` failed the registration check on a host where registration is off | Forgejo answers `/user/sign_up` with 200 and the text "Registration is disabled" in place of the form, so status 200 was read as "open" | The body decides: the disabled notice passes, the sign-up form fails. Both were exercised |
+| `terraform plan` (and so `apply`) for `aws/` died with `Output refers to sensitive values` on `user_data_bytes`, which `validate` cannot see | The rendered user-data embeds the backup key, so even its length is tainted as sensitive | The output in `terraform/aws/outputs.tf` is marked `sensitive = true` |
+| `ARCHITECTURE.md` said the host copy of user-data is scrubbed after first boot, which is only partly true | After a real first boot `cloud-config.txt` and `obj.pkl` under `/var/lib/cloud/instances/` still hold the whole bundle, root-only, like `backup.env` | The documentation and the comment in `bootstrap.sh` now say so. Behaviour is unchanged: deleting cloud-init's own state was judged riskier than an exposure equal to `backup.env`'s |
+
+### Not checked
 
 | **Not** checked | |
 |---|---|
-| Any `terraform apply`, any real AWS or Azure resource | Nothing here has been deployed from this repository |
-| Caddy and TLS (`WITH_CADDY=true`), Let's Encrypt issuance | `make local` runs without Caddy |
-| `bootstrap.sh` on a real Ubuntu 24.04 host, the cloud-init first boot, the backup systemd timer | Needs a live host |
-| Jenkins (`CI_ENGINE=jenkins`) | No Jenkins container was started |
-| `verify.sh` (both halves), `forgectl.sh deploy` and `destroy` for aws and azure | Needs a live cloud host |
+| Any `terraform apply`, any real AWS or Azure resource | Nothing here has been deployed from this repository. `terraform plan` was run for `aws/` only; `azure/` was validated but never planned. The `aws/` plan creates an IAM user, access key and inline policy, which is a decision for the account owner |
+| Let's Encrypt (ACME HTTP-01) issuance and renewal | Needs a public IP and a public DNS record. Only Caddy's internal CA was exercised |
+| A real cloud first boot: Lightsail or Azure user-data, their metadata services, their firewalls, and the 16 KB Lightsail limit with the real AWS key lines added | The guest used the NoCloud datasource, so the bundle was delivered and unpacked by the real cloud-init, but not by either cloud. The size limit is not evaluated at plan time either, because the key is only known after apply |
+| The backup timer on its real schedule, and `Persistent=true` catch-up after downtime | Fired once through a temporary schedule override, not at 03:30 |
+| fail2ban actually banning, unattended-upgrades actually installing, ufw probed from outside | Only that they are enabled and active, and the rules listed |
+| `verify.sh --ssh`, and `forgectl.sh deploy` and `destroy` for aws and azure | The two halves were run by hand, with the on-box half piped over ssh the way `--ssh` does it. The remote half used an internal name and a trusted internal CA, not public DNS |
+| Jenkins with Caddy (`Caddyfile.jenkins`), Multibranch and Forgejo webhooks, external agents, and the "needs 4 GB" sizing under load | Controller plus one trivial build only |
 | The S3 and Azure Blob code paths of `backup.sh` | Exercised only through rclone's local backend; the "remote reports no checksum" branch was exercised with `VERIFY_FULL=1` in an earlier run with `docker` stubbed |
 | `mirror-from-github.sh` against github.com, with `--lfs`, and with an organisation of more than one page of repositories | Needs a GitHub token |
-| Docker Desktop's engine, macOS, and running as a non-root user in the `docker` group | The run above used WSL's engine as root, so the `chown` fallback in `register-runner.sh` was not taken |
+| Docker Desktop's engine, macOS, and running as a non-root user in the `docker` group | The runs above used WSL's engine as root, and the guest ran everything as root, so the `chown` fallback in `register-runner.sh` was not taken |
 | Upgrades between pinned image versions, restores of a database larger than a few MB, and anything under load | Not attempted. The instance sizes above are still reasoned, not measured |
 
 ## License

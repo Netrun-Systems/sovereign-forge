@@ -70,12 +70,22 @@ remote_half() {
   body=$(curl -sS --max-time 15 "${resolve[@]}" "https://$HOST/api/v1/version" 2>/dev/null || true)
   case $body in
     *'"version"'*) pass "forge API answers: $body" ;;
-    *) fail "forge API /api/v1/version gave no version (REQUIRE_SIGNIN_VIEW may hide it; body='${body:0:80}')" ;;
+    # The kit sets REQUIRE_SIGNIN_VIEW, so an anonymous caller is refused: that is the API answering as designed.
+    *'Only signed in user is allowed'*) pass "forge API answers and refuses anonymous callers (REQUIRE_SIGNIN_VIEW)" ;;
+    *) fail "forge API /api/v1/version gave no version (body='${body:0:80}')" ;;
   esac
-  code=$(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' "${resolve[@]}" "https://$HOST/user/sign_up" 2>/dev/null || true)
+  # Forgejo answers 200 for /user/sign_up even when registration is disabled, and renders
+  # "Registration is disabled" in place of the form, so the body decides, not the status.
+  code=$(curl -sS --max-time 15 -o /tmp/forge-verify-signup.$$ -w '%{http_code}' "${resolve[@]}" "https://$HOST/user/sign_up" 2>/dev/null || true)
+  body=$(cat /tmp/forge-verify-signup.$$ 2>/dev/null || true); rm -f /tmp/forge-verify-signup.$$
   case $code in
     404|303|302|403) pass "self-registration is closed (/user/sign_up = $code)" ;;
-    200) fail "self-registration page is open (/user/sign_up = 200)" ;;
+    200)
+      case $body in
+        *'Registration is disabled'*) pass "self-registration is closed (/user/sign_up = 200 with 'Registration is disabled')" ;;
+        *'name="user_name"'*) fail "self-registration page is open (/user/sign_up = 200 and shows the sign-up form)" ;;
+        *) warn "/user/sign_up = 200 but the page is neither the form nor the disabled notice; check by hand" ;;
+      esac ;;
     *) warn "could not determine registration state (/user/sign_up = '${code:-none}')" ;;
   esac
 }

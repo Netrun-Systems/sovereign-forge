@@ -122,7 +122,8 @@ fi
 # --- backups
 systemctl enable --now forge-backup.timer
 
-# --- scrub: the cloud keeps user-data (which may carry storage credentials) on disk
+# --- scrub: delete the raw user-data copies. cloud-init also keeps cloud-config.txt and obj.pkl
+# (root-only, same exposure as /etc/forge/backup.env); this does not remove those.
 rm -f /var/lib/cloud/instance/user-data.txt /var/lib/cloud/instance/user-data.txt.i \
       /var/lib/cloud/instances/*/user-data.txt /var/lib/cloud/instances/*/user-data.txt.i \
       /var/lib/cloud/instances/*/scripts/* 2>/dev/null || true
