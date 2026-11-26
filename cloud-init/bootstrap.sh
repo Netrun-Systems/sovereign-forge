@@ -68,6 +68,8 @@ ufw allow "${SSH_PUBLIC_PORT:-2222}/tcp"
 ufw --force enable
 
 # --- fail2ban for the host sshd
+# Ubuntu 24.04 logs sshd under ssh.service; the stock filter only looks at sshd.service, so without
+# journalmatch the jail reads nothing and never bans.
 cat > /etc/fail2ban/jail.d/forge-sshd.local <<'CONF'
 [sshd]
 enabled = true
@@ -75,6 +77,7 @@ backend = systemd
 maxretry = 4
 findtime = 10m
 bantime = 1h
+journalmatch = _SYSTEMD_UNIT=ssh.service + _COMM=sshd
 CONF
 systemctl enable --now fail2ban
 systemctl restart fail2ban

@@ -1,5 +1,13 @@
 {
 	email {$ADMIN_EMAIL}
+	# Pin the issuer. Caddy's default is a list of issuers, and it falls back to
+	# ZeroSSL without saying so when Let's Encrypt validation fails: in the
+	# 2026-11-26 drill, five Let's Encrypt attempts failed while the name was
+	# still NXDOMAIN and Caddy then registered a ZeroSSL account under
+	# ADMIN_EMAIL on its own. With acme_ca set there is one issuer, so a
+	# validation failure stays a failure instead of quietly becoming a
+	# different CA. Point this at the staging directory when testing.
+	acme_ca https://acme-v02.api.letsencrypt.org/directory
 }
 
 {$FORGE_HOST} {

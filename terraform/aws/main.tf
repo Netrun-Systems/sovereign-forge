@@ -80,7 +80,7 @@ resource "aws_lightsail_instance" "forge" {
   bundle_id         = local.bundle_id
   key_pair_name     = aws_lightsail_key_pair.forge.name
   ip_address_type   = "ipv4"
-  user_data         = module.common.user_data
+  user_data         = module.common.launch_script
   tags              = local.tags
 
   lifecycle {
@@ -88,8 +88,8 @@ resource "aws_lightsail_instance" "forge" {
     ignore_changes = [user_data]
 
     precondition {
-      condition     = module.common.user_data_bytes <= 16384
-      error_message = "Rendered cloud-init exceeds Lightsail's 16384-byte user-data limit. Trim the shipped files or use a shorter forge_host/age_recipient."
+      condition     = module.common.launch_script_bytes <= 14000
+      error_message = "Rendered cloud-init exceeds the 14000-byte budget (Lightsail rejects user-data somewhere between 14,500 and 14,950 bytes). Trim the shipped files or use a shorter forge_host/age_recipient."
     }
   }
 }
@@ -101,11 +101,20 @@ resource "aws_lightsail_static_ip" "forge" {
 resource "aws_lightsail_static_ip_attachment" "forge" {
   static_ip_name = aws_lightsail_static_ip.forge.name
   instance_name  = aws_lightsail_instance.forge.name
+
+  # Replacing the instance detaches the IP and resets the firewall; redo both.
+  lifecycle {
+    replace_triggered_by = [aws_lightsail_instance.forge.id]
+  }
 }
 
 # Declarative: this resource REPLACES all rules on the instance with exactly these.
 resource "aws_lightsail_instance_public_ports" "forge" {
   instance_name = aws_lightsail_instance.forge.name
+
+  lifecycle {
+    replace_triggered_by = [aws_lightsail_instance.forge.id]
+  }
 
   port_info {
     protocol  = "tcp"
@@ -274,6 +283,7 @@ data "aws_iam_policy_document" "backup" {
     sid = "DailyReadWritePrune"
     actions = [
       "s3:GetObject",
+      "s3:GetObjectVersion", # rclone reads a just-written object back by versionId on a versioned bucket
       "s3:PutObject",
       "s3:DeleteObject",
       "s3:AbortMultipartUpload",
@@ -287,6 +297,7 @@ data "aws_iam_policy_document" "backup" {
     sid = "WeeklyReadWriteOnly"
     actions = [
       "s3:GetObject",
+      "s3:GetObjectVersion", # rclone reads a just-written object back by versionId on a versioned bucket
       "s3:PutObject",
       "s3:AbortMultipartUpload",
       "s3:ListMultipartUploadParts",

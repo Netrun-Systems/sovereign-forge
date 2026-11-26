@@ -1,0 +1,32 @@
+#!/bin/sh
+# Lightsail does not process user-data as cloud-config: it appends it to its own
+# /bin/sh launch script and runs the result as root. So this is a shell script that
+# does what cloud-init.yaml.tftpl does for Azure: install packages, unpack the kit,
+# run bootstrap.sh.
+set -eu
+export DEBIAN_FRONTEND=noninteractive
+apt-get -o DPkg::Lock::Timeout=300 update -q
+apt-get -o DPkg::Lock::Timeout=300 upgrade -y -q
+apt-get -o DPkg::Lock::Timeout=300 install -y -q ca-certificates curl docker.io docker-compose-v2 ufw fail2ban unattended-upgrades age rclone openssl
+mkdir -p /opt/forge
+cat > /opt/forge/kit.bundle.b64 <<'KIT_BUNDLE_END'
+${bundle_b64gz}
+KIT_BUNDLE_END
+base64 -d /opt/forge/kit.bundle.b64 | gunzip > /opt/forge/kit.bundle
+rm -f /opt/forge/kit.bundle.b64
+chmod 600 /opt/forge/kit.bundle
+cat > /usr/local/sbin/forge-unpack <<'UNPACK_END'
+#!/bin/sh
+set -eu
+o=
+while IFS= read -r l; do
+  case $l in
+    '#@@FILE '*) set -- $l; [ -z "$o" ] || exec 3>&-; o=$2; mkdir -p "$${o%/*}"; : >"$o"; chmod $3 "$o"; exec 3>>"$o" ;;
+    *) [ -z "$o" ] || printf '%s\n' "$l" >&3 ;;
+  esac
+done </opt/forge/kit.bundle
+rm -f /opt/forge/kit.bundle
+UNPACK_END
+chmod 755 /usr/local/sbin/forge-unpack
+/usr/local/sbin/forge-unpack
+bash /opt/forge/cloud-init/bootstrap.sh

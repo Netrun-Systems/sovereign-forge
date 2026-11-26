@@ -16,3 +16,6 @@ age-identity*
 compose/data/
 data/
 .work/
+# Agent scratch and memory: never commit, it is not reviewed and has held
+# private addresses (caught by scripts/check-no-secrets.sh on 2026-11-26)
+.claude/

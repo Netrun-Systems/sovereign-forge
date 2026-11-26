@@ -173,7 +173,7 @@ First move in every incident: write down the time and what you saw, before you c
 
 1. From your machine: `scripts/verify.sh --host [FORGE_HOST]`. It tells you which port or check failed.
 2. DNS: `dig +short [FORGE_HOST]` must be the instance's static IP. A changed IP means a recreated instance.
-3. Certificate: `forge-compose logs caddy | tail`. Let's Encrypt rate limits, a missing A record or a blocked port 80 are the usual causes.
+3. Certificate: `forge-compose logs caddy | tail`. A missing or wrong A record, a blocked port 443 or 80, or Let's Encrypt rate limits are the usual causes. Caddy uses `tls-alpn-01` on 443 when it can and falls back to `http-01` on 80, so both ports have to be reachable from the internet. The Caddyfiles pin `acme_ca` to Let's Encrypt, so a validation failure now stays a visible failure: if the name does not resolve yet, Caddy will keep failing rather than silently obtaining a certificate from another CA. Fix DNS first, then restart Caddy.
 4. Forgejo: `forge-compose ps`; `forge-compose logs --tail 100 forgejo`. If it is restarting, look for a database connection error before anything else.
 5. Database: `forge-compose logs --tail 50 postgres`.
 6. Disk: `df -h /` and `docker system df`. See below.

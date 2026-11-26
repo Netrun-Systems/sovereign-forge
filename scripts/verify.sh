@@ -136,9 +136,11 @@ onbox_half() {
   for f in /opt/forge/compose/.env /etc/forge/backup.env; do
     [ "$(stat -c %a "$f" 2>/dev/null || echo missing)" = 600 ] && pass "$f mode 600" || fail "$f is not mode 600"
   done
-  ufw status 2>/dev/null | grep -q '^Status: active' && pass "ufw active" || fail "ufw not active"
+  # No `grep -q` after a pipe here: it exits at the first match, the writer gets SIGPIPE, and pipefail
+  # then reports the check as failed some of the time.
+  ufw status 2>/dev/null | grep '^Status: active' >/dev/null && pass "ufw active" || fail "ufw not active"
   systemctl is-active --quiet fail2ban && pass "fail2ban active" || fail "fail2ban not active"
-  sshd -T 2>/dev/null | grep -qi '^passwordauthentication no' && pass "sshd password authentication off" || fail "sshd allows password authentication"
+  sshd -T 2>/dev/null | grep -i '^passwordauthentication no' >/dev/null && pass "sshd password authentication off" || fail "sshd allows password authentication"
   systemctl is-enabled --quiet unattended-upgrades && pass "unattended-upgrades enabled" || fail "unattended-upgrades not enabled"
 }
 

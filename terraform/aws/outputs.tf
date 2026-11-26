@@ -27,8 +27,8 @@ output "bundle_id" {
 }
 
 output "user_data_bytes" {
-  description = "Rendered cloud-init size; Lightsail rejects more than 16384."
-  value       = module.common.user_data_bytes
+  description = "Rendered cloud-init size; Lightsail rejects more than about 14,600 (measured), despite its 16 KB documentation."
+  value       = module.common.launch_script_bytes
   # The rendered user-data embeds the backup key, so Terraform taints even its length as sensitive.
   sensitive = true
 }

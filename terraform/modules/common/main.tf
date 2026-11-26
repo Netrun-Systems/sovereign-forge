@@ -151,10 +151,12 @@ locals {
   ))
 
   # One text bundle, one gzip stream: much smaller than gzipping each file alone,
-  # which matters because Lightsail caps user-data at 16 KB. forge-unpack (written
+  # which matters because Lightsail rejects user-data over its limit (measured: 14,500 bytes
+  # accepted, 14,950 rejected, not the 16 KB the docs state). Comment-only and blank lines are
+  # not shipped, which saves about 4 KB; the files in the repo keep them. forge-unpack (written
   # by the cloud-config template) splits it back into files on the host.
   bundle = join("", concat(
-    [for f in local.static_files : "#@@FILE ${f.dst} ${f.mode}\n${trimsuffix(file("${local.root}/${f.src}"), "\n")}\n"],
+    [for f in local.static_files : "#@@FILE ${f.dst} ${f.mode}\n${trimsuffix(replace(file("${local.root}/${f.src}"), "/(?m)^[ \\t]*(#([^!\\n][^\\n]*)?)?\\n/", ""), "\n")}\n"],
     [
       "#@@FILE /etc/forge/forge.env 0644\n${local.forge_env}\n",
       "#@@FILE /etc/forge/backup.env 0600\n${local.backup_env}\n",
@@ -196,6 +198,19 @@ output "user_data" {
 }
 
 output "user_data_bytes" {
-  description = "Size of the rendered user-data in bytes (Lightsail caps it at 16384)."
+  description = "Size of the rendered user-data in bytes (Lightsail rejected 14,950 and accepted 14,500 when measured)."
   value       = length(templatefile("${local.root}/cloud-init/cloud-init.yaml.tftpl", { bundle_b64gz = base64gzip(local.bundle) }))
+}
+
+output "launch_script" {
+  description = "The same first boot as a shell script, for Lightsail, which runs user-data as a script and ignores #cloud-config."
+  sensitive   = true
+  value = templatefile("${local.root}/cloud-init/lightsail-launch.sh.tftpl", {
+    bundle_b64gz = base64gzip(local.bundle)
+  })
+}
+
+output "launch_script_bytes" {
+  description = "Size of launch_script in bytes."
+  value       = length(templatefile("${local.root}/cloud-init/lightsail-launch.sh.tftpl", { bundle_b64gz = base64gzip(local.bundle) }))
 }
