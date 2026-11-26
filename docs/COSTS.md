@@ -110,7 +110,7 @@ bursts — a real cost that does not appear on any price sheet.
 | S3 us-east-1 Standard | $0.023/GB-mo (first 50 TB) | AWS price list, us-east-1 |
 | S3 us-east-1 Glacier Instant Retrieval | $0.004/GB-mo; retrieval $0.03/GB | AWS price list |
 | S3 requests, Standard | PUT/COPY/POST/LIST $0.005/1,000; GET $0.004/10,000 | AWS price list |
-| S3 requests, Glacier IR | PUT $0.02/1,000; GET $0.01/10,000 | AWS price list |
+| S3 requests, Glacier IR | PUT $0.02/1,000; GET $0.10/10,000 (corrected 2026-11-26 from $0.01; AWS price list) | AWS price list |
 | AWS transfer out to internet | $0.09/GB, first 10 TB, beyond the free tier | AWS price list |
 | Backblaze B2 | $6.95/TB-mo; egress free to 3× average stored, then $0.01/GB | backblaze.com pricing |
 | Azure VM, Linux PAYG, East US | B2s $0.0416/hr = $30.37/mo · B1ms $0.0207/hr = $15.11/mo | Azure Retail Prices API |
