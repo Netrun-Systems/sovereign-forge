@@ -1,6 +1,6 @@
 # sovereign-forge
 
-A self-hosted Git forge and CI that you can stand up on a small cloud VM, or on a machine you own, with one command. It packages [Forgejo](https://forgejo.org) for private repositories, a CI runner beside it, and encrypted nightly off-site backups with a restore drill. It grew out of our own setup, a snapshot copy of our repositories on hardware we own with encrypted nightly backups, The AWS path has now been deployed end to end on real infrastructure and destroyed again; the Azure path has not. See [Verification status](#verification-status) for exactly what has and has not been tested.
+A self-hosted Git forge and CI that you can stand up on a small cloud VM, or on a machine you own, with one command. It packages [Forgejo](https://forgejo.org) for private repositories, a CI runner beside it, and encrypted nightly off-site backups with a restore drill. It grew out of our own setup: a snapshot copy of our repositories on hardware we own, with encrypted nightly backups. The AWS path has now been deployed end to end on real infrastructure and destroyed again; the Azure path has not. See [Verification status](#verification-status) for exactly what has and has not been tested.
 
 ```
 make aws        # Lightsail + S3        -> https://forge.example.com
