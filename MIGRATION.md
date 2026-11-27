@@ -56,9 +56,16 @@ Then for real:
 scripts/mirror-from-github.sh --github [ORG] --forge-url https://[FORGE_HOST] --lfs
 ```
 
-What it does for each repository: creates the forge repository if it is missing (private if the source is private; the forge organisation is created if absent), `git clone --mirror`, then `git push --mirror`. It is safe to re-run: an existing local mirror is refreshed with `git remote update --prune`. Archived repositories are skipped unless you pass `--include-archived`. The summary line and a non-zero exit tell you if any repository failed.
+What it does for each repository: creates the forge repository if it is missing (private if the source is private; the forge organisation is created if absent), `git clone --mirror`, then `git push --mirror`. An existing local mirror is refreshed with `git remote update --prune`. Archived repositories are skipped unless you pass `--include-archived`. The summary line and a non-zero exit tell you if any repository failed.
 
-**Re-running it is safe only while GitHub is the sole place anyone pushes.** `git push --mirror` makes the forge match GitHub exactly, so a commit or branch that exists only on the forge is deleted on the next run; we reproduced that in testing. It also mirrors every repository in the organisation, not a chosen subset. Once people start pushing to the forge, stop re-running it.
+**Re-running is safe by default: the script refuses to destroy work that exists only on the forge.** Before it pushes a repository it reads the forge's refs and compares them with GitHub's. It pushes only if every forge ref also exists on GitHub and the forge's commit is the same as, or an ancestor of, GitHub's tip. Otherwise that repository is **refused**: nothing is pushed to it, each offending ref is logged as `REFUSED <repo>: <ref> <reason>`, the summary lists the repository, and the exit code is 3 (1 if any repository failed outright). The reasons are `only-on-forge` (a branch or tag GitHub does not have), `forge-commit-unknown-to-github` (a commit made on the forge), and `...-not-ancestor-of-github-...` (GitHub's history was rewritten, or a tag was moved, so a push would rewind the forge). `refs/pull/*` is ignored because the forge owns it. The other repositories in the run still proceed. Resolve a refusal by hand: push the forge-only work to GitHub, or decide to discard it and re-run that repository with `--overwrite-forge`.
+
+Two options change what a run does:
+
+- `--only-existing` mirrors only repositories that already exist on the forge. It never creates a repository or an organisation, and a GitHub repository with no forge counterpart is logged as not on the forge and counted in the summary, not treated as an error. Use it for a scheduled refresh, so that a new GitHub repository does not appear on the forge until a human has decided it should.
+- `--overwrite-forge` restores the old behaviour: `git push --mirror` unconditionally, so a commit, branch or tag that exists only on the forge is **deleted**. Use it for the one-off initial load or an explicit reset, never from a timer.
+
+A failure to list GitHub's repositories (an expired token, a rate limit, an error on a later page) now stops the run with a non-zero exit instead of mirroring whatever came back before the error. The script still mirrors every repository in the organisation unless you pass `--only-existing`.
 
 Two behaviours to know:
 
