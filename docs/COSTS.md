@@ -29,7 +29,7 @@ Where a figure could not be verified it says so rather than guessing.
 
 Method: Team $4/user-mo × 12; Enterprise $21/user-mo × 12; no annual discount is published,
 and a Team minimum seat count is unverified. Forge = (host + $0.04/mo backup) × 12. Host
-sizing is an assumption — Forgejo's real resource floor is unverified. Hetzner CX23 at 1–20
+sizing is an assumption for Hetzner and for the Lightsail rows above 10 seats; a load test on 2026-11-26 measured the Lightsail `small_3_0` idle footprint and sustained CPU (see the README's Verification status), and showed that CI on that one box is limited by CPU and slows the forge's pages, so "$12 at 1–20 seats" holds on cash only for light CI. Hetzner CX23 at 1–20
 seats, CX33 at 50, CX43 at 200; Lightsail $12 at 1–20, $24 at 50, $44 at 200.
 
 **Cash crossover.** vs Team: 2 seats on Hetzner, 4 on Lightsail (at 3 seats Team is $0.48
@@ -182,7 +182,7 @@ Do not quote these as facts:
 - RAM for Azure B2s and B1ms (not fetched; prices are list PAYG).
 - Forgejo's and Jenkins's minimum and recommended resources; whether Forgejo's SSO and audit
   logging are equivalent to GitHub Enterprise's; CVE counts and patch cadence for either.
-- Lightsail 2 GB and 4 GB suitability for a forge — an assumption, not a benchmark.
+- Lightsail 2 GB suitability for a forge — load-tested once on 2026-11-26 (idle memory, sustained CPU, one real build, page latency; see the README's Verification status). The 4 GB `medium_3_0` was not tested, and has the same sustained CPU as the 2 GB plan according to AWS's own table. Neither was tested under real multi-user load.
 - Lightsail snapshot sizes.
 - The operator hours and hourly rates above, which are illustrative throughout.
 

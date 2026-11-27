@@ -92,7 +92,7 @@ The default is **Forgejo Actions**. It reads GitHub-Actions-compatible workflow 
 | Forgejo Actions | `small_3_0` (2 GB, 2 vCPU) | `Standard_B1ms` (2 GB, 1 vCPU) | Forgejo, PostgreSQL, Caddy, a Go runner and its Docker-in-Docker sidecar. A 2 GB swapfile is created as a safety margin. |
 | Jenkins | `medium_3_0` (4 GB, 2 vCPU) | `Standard_B2s` (4 GB, 2 vCPU) | The same stack minus the runner, plus a Jenkins controller capped at a 1 GB heap and a 2 GB container limit. |
 
-These sizes are reasoned starting points, not benchmarks. We have not load-tested the kit. Watch memory and swap for a week on your own workload, and set `bundle_id` or `vm_size` accordingly. The reasoning for the default is in [docs/CHOOSING.md](docs/CHOOSING.md).
+These sizes began as reasoned starting points. On 26 November 2026 we load-tested the AWS default (`small_3_0`) and one compute-optimized plan on throwaway Lightsail instances; the results are under [Verification status](#verification-status). In short: memory is not what limits a 2 GB instance, sustained CPU is. A `small_3_0` runs at full speed for about its first hour and then holds 0.4 vCPU, and while a build runs on the same box the forge's web pages slow from tens of milliseconds to seconds. The test was one afternoon on a few instances with synthetic repositories, a public open-source build, and no real multi-user load, so the sizes are still starting points. Watch memory, swap and CPU steal for a week on your own workload, and set `bundle_id` or `vm_size` accordingly. The reasoning for the default is in [docs/CHOOSING.md](docs/CHOOSING.md).
 
 ## What is in here
 
@@ -111,7 +111,7 @@ Start with [ARCHITECTURE.md](ARCHITECTURE.md) for how it fits together and what 
 Read this before you trust it with anything.
 
 - **No high availability.** One machine. If it dies you restore from backup onto a new one; plan for that to take an hour or more and for up to a day of data loss (the backup runs nightly).
-- **The runner shares a machine with the forge.** CI jobs run in a Docker-in-Docker sidecar, which is isolation, not a security boundary. Do not run untrusted pull requests on it. Put the runner on its own machine for anything public. See the threat model in [ARCHITECTURE.md](ARCHITECTURE.md).
+- **The runner shares a machine with the forge.** CI jobs run in a Docker-in-Docker sidecar, which is isolation, not a security boundary. Do not run untrusted pull requests on it. Put the runner on its own machine for anything public. See the threat model in [ARCHITECTURE.md](ARCHITECTURE.md). It is also a performance reason: in our load test the forge's pages were slow whenever a build ran on the same instance (see [Verification status](#verification-status)). The kit has no script for a separate runner machine, and that topology was not tested.
 - **No monitoring or alerting stack.** `verify.sh`, systemd and the journal are what you get. A failed backup is a log line and a stale timestamp, not a page. Wire it to whatever you already use.
 - **No outbound email.** SMTP is not configured, so there are no notification mails or password-reset links until you set it up in Forgejo.
 - **No SSO, LDAP, or SAML.** Local accounts only. Self-registration is off.
@@ -206,6 +206,30 @@ Four of these made `make aws` impossible, and none of them was visible to `terra
 | The intermittent "sshd allows password authentication" failure of the 2026-11-25 run was in the check, not the host | `grep -q` after a pipe, under `pipefail`, killed the writer with SIGPIPE | Restructured. It now passes every time: 6 of 6, and again in both final runs |
 | Caddy falls back to ZeroSSL when Let's Encrypt validation fails, and registers a ZeroSSL account under `ADMIN_EMAIL` without saying so, while this kit's documentation says Let's Encrypt | Five Let's Encrypt failures while the name was still NXDOMAIN (`urn:ietf:params:acme:error:dns ... NXDOMAIN`), then an unannounced ZeroSSL account | Both Caddyfiles pin `acme_ca` to the Let's Encrypt directory, so a validation failure stays a failure instead of quietly becoming a different CA. Verified by adapting each file: exactly one issuer, module `acme`, at that directory |
 
+### Measured, 2026-11-26 — a load test on throwaway Lightsail instances, then deleted
+
+Environment: AWS us-east-1, driven from the command line, Ubuntu 24.04. Three throwaway instances over one afternoon, all deleted the same day (computed cost about $0.24 in total): one `small_3_0` ($12, 2 GB, 2 vCPU) for the first test, then a `c_large_1_0` ($42, 4 GB, 2 vCPU, compute-optimized) and a second `small_3_0` for a follow-up. The stack on the `small_3_0` boxes was this kit at `c409cd7`, unmodified, with Forgejo Actions, plain HTTP, no Caddy and no backup timer, on the kit's Docker Compose files rather than its Terraform path. The load came from scripts running on the instance itself against loopback, so client and server shared the same two vCPUs. The repository was synthetic (231 MiB, 301 commits, repacked once). The CI jobs were a synthetic memory-and-hash job and a build of a public open-source TypeScript monorepo (install, build, typecheck). **We did not run our own build on the kit.**
+
+| Measured | Result |
+|---|---|
+| Idle footprint of Forgejo, PostgreSQL, the runner and Docker-in-Docker on `small_3_0` | 690 MB used of 1,905 MB (maximum 714 MB), 1 MB of swap, about 0.02 vCPU of CPU, over a 557-second window with the kit's 2 GiB swapfile |
+| Sustained CPU on `small_3_0` | Both vCPUs ran at about 99% with no throttling for the first hour, then dropped abruptly to 0.4 vCPU (20% of the box) and stayed there for as long as we kept loading it, over an hour. Two separate instances were throttled 60.9 and 60.5 minutes after creation, although the second had done about 25 more vCPU-minutes of work, so the onset followed the clock and not the work done. A burstable plan tested for under about 70 minutes looks unthrottled. Lightsail's burst-capacity metrics read about 0% for the whole test, including while the box ran at 99%, so they are not an early warning on this plan; guest CPU steal (above 30% sustained) and the CPU-utilization metric pinned near 20% were |
+| Sustained CPU on `c_large_1_0` ($42) | Synthetic two-vCPU load for 150 minutes: 99.9% busy, 0.00% steal, flat throughput, no throttle. This is raw CPU only. No CI job ran on this plan and its memory under a job was not measured |
+| Forge cost per request, 231 MiB repository | A full clone cost about 3.0 server CPU-seconds at every concurrency from 1 to 20 clones, with 0 failures. A small push cost about 0.92. Forgejo's memory peaked at 189 MB with 20 concurrent clones and 735 MB with 20 concurrent pushers. On the throttled box, 20 pushers making 10 pushes each took 650 seconds, with a median of 63 seconds per push |
+| CI jobs on a throttled `small_3_0` | The public TypeScript build took 808 seconds, peaked at 899 MB in its container and 433 MB of swap, with no out-of-memory kill. A synthetic 1.5 GB job ran in 579 seconds using about 1 GB of swap. Two of those at once (`capacity: 2`) both succeeded, each taking 2.66 times as long, which is 0.75 times the throughput of running them one after the other, with swap full and no out-of-memory kill. A second runner slot adds nothing on this plan |
+| Forge web UI latency on `small_3_0` | Idle: 71 ms median, 229 ms 95th percentile, measured on the box. While a build ran on the same throttled box: **1.3 to 6.9 seconds at the median**, depending on the test. 6.9 seconds came from a single 180-second window of 75 requests. 1.3 to 1.5 seconds came from whole jobs with three simulated users browsing continuously (1.5 as the kit ships, 1.3 with the CPU and memory limits we tried). At full speed, before the throttle, pages answered in 85 to 93 ms during a build. So the slowness is the throttle, not the missing container limits. The limits recovered 10 to 15% of the delay and made the build 7% slower when throttled and 31% slower at full speed, so we do not recommend them as the fix |
+| CI log size | 0.6 KB and 3.4 KB compressed on disk for two quiet jobs, and a 17 MB database after four runs. A noisy job was not tested |
+
+**Calculated from those measurements, on assumed demand.** These are our arithmetic, not things we observed. They assume three CI runs per developer per working day at 13 minutes each (the mean build time on our own CI is 13.25 minutes; the three runs a day is our assumption), 21 working days a month, one runner slot, and 60% utilisation of business hours.
+
+| Calculated | Result |
+|---|---|
+| Developers one `small_3_0` carries, human-only | About 7 on throughput alone (a single runner slot at 819 build-minutes per developer-month). About 2 to 3 if you want the pages to stay quick during builds. That second figure rests on the 1.3 to 6.9 second range above and on no latency target we can justify, so treat the true span as 2 to 7 |
+| Monthly cost, human-only, cash only | About $14 at 5 developers (one $12 instance plus about $2 of backup storage at the kit's default retention for 2.5 GiB) and about $27 at 10 (two $12 instances, the runner on its own, plus backup). Operator time is not priced. At 5 developers on one instance, builds would slow the forge's pages as above |
+| At our own CI volume | Our CI runs about 270 builds and 3,590 build-minutes a month for one operator working with agents (99 builds over 11.1 days). If each developer generated that much, 5 developers would produce about 17,700 build-minutes a month, more than a $12 runner holds, and the calculation puts the runner on the $42 compute-optimized plan, about $57 a month in total |
+
+The separate-runner topology behind the $27 and $57 figures was not built or tested, and the kit has no script for it. Everything above 10 developers, and every plan larger than those named here, is extrapolation.
+
 ### Not checked
 
 | **Not** checked | |
@@ -218,7 +242,12 @@ Four of these made `make aws` impossible, and none of them was visible to `terra
 | Jenkins with Caddy (`Caddyfile.jenkins`), Multibranch and Forgejo webhooks, external agents, and the "needs 4 GB" sizing under load | Controller plus one trivial build only. The `acme_ca` pin added to `Caddyfile.jenkins` was adapted but never served |
 | `mirror-from-github.sh` against github.com, with `--lfs`, and with an organisation of more than one page of repositories | Needs a GitHub token |
 | Docker Desktop's engine, macOS, and running as a non-root user in the `docker` group | Every run above used WSL's engine as root, and both the QEMU guest and the Lightsail instance ran everything as root, so the `chown` fallback in `register-runner.sh` was never taken |
-| Upgrades between pinned image versions, restores of a database larger than a few MB, and anything under load | Not attempted. The instance sizes above are still reasoned, not measured |
+| Upgrades between pinned image versions, and restores of a database larger than a few MB | Not attempted |
+| Anything under sustained real multi-user load | Not checked. The load test above used scripted users and synthetic repositories on one instance at a time |
+| Hosts and runners beyond what was named | No `medium_3_0`, `large_3_0` or other forge host was tested, and no compute-optimized plan above `c_large_1_0`. No CI job ran on any compute-optimized plan. A separate runner machine was not built. The per-developer and monthly figures for them are calculations |
+| A build of our own on the kit | Not run. The only real build was a public open-source TypeScript monorepo. How much memory and CPU a production monorepo build needs is unmeasured, so the 4 GB floor for heavier builds is still an assumption |
+| Beyond the load test's limits | Nothing past 152 minutes on any instance, nothing after stopping and starting an instance (whether the unthrottled first hour comes back is unknown), and no CPU-weight or priority setting for the build container as a way to protect the forge's pages |
+| The forge as a real user would see it | No Caddy and no TLS in the load test, page timings from a remote browser only for a few small windows (idle, and one build), not for whole jobs, no transfer billing for checkouts through the public URL, no backup run under load, and no repository made of many small unpacked pushes |
 
 ## License
 
