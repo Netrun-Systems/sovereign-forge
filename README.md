@@ -4,7 +4,7 @@ A self-hosted Git forge and CI that you can stand up on a small cloud VM, or on 
 
 ```
 make aws        # Lightsail + S3        -> https://forge.example.com
-make azure      # small VM + Blob       -> https://forge.example.com
+make azure      # small VM + Blob       -> unverified, see Not checked
 make local      # Docker Compose here   -> http://localhost:3000
 ```
 
@@ -33,7 +33,7 @@ This is a kit, not a price list, so the numbers live in [docs/COSTS.md](docs/COS
 | | Where | Host cost | TLS | Backups go to | Use it when |
 |---|---|---|---|---|---|
 | **AWS** | One Lightsail instance + static IP + firewall | Flat monthly bundle | Caddy + Let's Encrypt | S3 (versioned, lifecycle to Glacier Instant Retrieval), scoped IAM user | You are already on AWS, or want the simplest flat price |
-| **Azure** | One burstable Linux VM + NSG | Pay for the VM and disk | Caddy + Let's Encrypt | Blob (versioned, Cool then Archive), managed identity, no stored secret | You are already on Azure, or want credential-less backups |
+| **Azure** (unverified) | One burstable Linux VM + NSG | Pay for the VM and disk | Caddy + Let's Encrypt | Blob (versioned, Cool then Archive), managed identity, no stored secret | You are already on Azure, want credential-less backups, and are prepared to finish an untested path: it has never been planned or applied, and we do not maintain it |
 | **Local** | Any Linux box with Docker: a spare PC, a Proxmox container, a home server | Hardware you own | None by default | Anything rclone speaks, configured by you | You own hardware, or want to try it first |
 
 All three run the same containers from the same compose files.
@@ -59,7 +59,7 @@ $EDITOR terraform/aws/terraform.tfvars    # forge_host, admin_email, ssh_public_
 **3. Run it.**
 
 ```bash
-make aws        # or: make azure
+make aws        # or: make azure (unverified)
 ```
 
 Terraform shows its plan and asks before applying. When it finishes, the command prints the address to point your DNS at, then waits (up to 15 minutes) for first boot, DNS and the certificate, and runs `scripts/verify.sh` against the result. Create the A record when it tells you to.
@@ -147,6 +147,7 @@ Environment of the 2026-11-26 run, the first real cloud deployment: AWS us-east-
 | `make destroy CLOUD=local PURGE=1`, then `make local` again | Containers, volumes and the runner registration are gone and the next `make local` registers a new runner |
 | `mirror-from-github.sh`: dry run, mirror, re-run, archived repositories skipped, pull-request refs preserved | Against a stubbed GitHub API and local file origins, into the real local Forgejo. Not against github.com |
 | `mirror-from-github.sh` safety options (2026-11-25): `--only-existing` creates nothing; a forge-only commit, a forge-only branch, rewritten GitHub history and a moved tag are each refused with exit 3 and nothing lost; `--overwrite-forge` still deletes forge-only refs; a bad token or an error on a later GitHub page aborts non-zero | 28 assertions (including a mixed-case GitHub name mirrored into a lowercase forge repo through a mixed-case owner) against a throwaway Forgejo 15.0.12 (SQLite) in WSL, a stubbed GitHub API and local file origins. Not against github.com |
+| `mirror-from-github.sh` against github.com (2026-11-26 and 2026-11-27) | Our own organisation into our own forge, on hardware we own, with `--only-existing`. On 26 November it was run by hand. The first run refused one repository, exactly as the safety options intend: the forge held 24 branches that GitHub no longer had. We bundled the forge copy, checked that every one of those commits still existed on GitHub, removed the branches, and the second run mirrored all 43 with nothing refused; a head comparison afterwards found 43 matching and none different. On 27 November the nightly timer ran it unattended for the first time: 62 repositories listed, 43 mirrored, 13 archived ones skipped, 6 not on the forge left alone, 0 refused, 0 failed. Heads were not compared after that run. Not with `--lfs` |
 | `shellcheck` on `scripts/` and `cloud-init/bootstrap.sh` | Clean with shellcheck 0.11.0 (container) and 0.9.0 (the version the CI job installs from Debian bookworm). Re-run clean with 0.11.0 on 2026-11-25 after the fixes below |
 | Secret tripwire catches keys, private addresses and valued env files, and no longer prints the secret it found | `scripts/check-no-secrets.sh`, positive and negative |
 
@@ -235,13 +236,13 @@ The separate-runner topology behind the $27 and $57 figures was not built or tes
 
 | **Not** checked | |
 |---|---|
-| Azure, in any form | `azure/` passes `fmt` and `validate`, but no `plan` and no `apply` has ever been run against it, and its first boot still relies on the cloud-config that Lightsail proved is not executed everywhere. Treat the Azure path as unverified, not merely untested |
+| Azure, in any form | `azure/` passes `fmt` and `validate`, but no `plan` and no `apply` has ever been run against it, and its first boot still relies on the cloud-config that Lightsail proved is not executed everywhere. Treat the Azure path as unverified, not merely untested. We do not run anything on Azure, so we do not test or maintain this path; it stays in the kit for anyone who wants to finish it |
 | The `GLACIER_IR` lifecycle transition | The rule for `weekly/` at 30 days is present and correct in the bucket's configuration. The objects were hours old, so the transition cannot have happened and only the configuration is verified |
 | Certificate renewal | Issuance was verified against Let's Encrypt. The renewal at about 60 days was not waited for |
 | `Persistent=true` catch-up after downtime | The timer was observed firing on its own schedule, not catching up after a missed window |
 | The Azure Blob code path of `backup.sh` | S3 and rclone's local backend are both exercised; Azure Blob is not. The "remote reports no checksum" branch was exercised only with `VERIFY_FULL=1` and `docker` stubbed |
 | Jenkins with Caddy (`Caddyfile.jenkins`), Multibranch and Forgejo webhooks, external agents, and the "needs 4 GB" sizing under load | Controller plus one trivial build only. The `acme_ca` pin added to `Caddyfile.jenkins` was adapted but never served |
-| `mirror-from-github.sh` against github.com, with `--lfs`, and with an organisation of more than one page of repositories | Needs a GitHub token |
+| `mirror-from-github.sh` with `--lfs`, and with an organisation of more than one page of repositories (more than 100) | Needs a GitHub token. The github.com runs above listed 61 and 62 repositories, which is one page |
 | Docker Desktop's engine, macOS, and running as a non-root user in the `docker` group | Every run above used WSL's engine as root, and both the QEMU guest and the Lightsail instance ran everything as root, so the `chown` fallback in `register-runner.sh` was never taken |
 | Upgrades between pinned image versions, and restores of a database larger than a few MB | Not attempted |
 | Anything under sustained real multi-user load | Not checked. The load test above used scripted users and synthetic repositories on one instance at a time |
